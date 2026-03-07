@@ -67,6 +67,31 @@ The initial baseline plan is to compare against `Qwen3.5-2B` on a focused local 
 
 See [docs/evaluation.md](/home/tylerkirk/projects/VLM/docs/evaluation.md) for the proposed comparison setup.
 
+## Repo Layout
+
+The initial scaffold now includes:
+
+```text
+.
+|-- README.md
+|-- pyproject.toml
+|-- .gitignore
+|-- docs/
+|   |-- architecture.md
+|   |-- datasets-and-training.md
+|   `-- evaluation.md
+|-- examples/
+|-- configs/
+|   |-- data/
+|   |-- eval/
+|   |-- model/
+|   `-- train/
+|-- scripts/
+|-- src/
+`-- experiments/
+```
+
+The code paths are still intentionally light. The current scaffold focuses on config composition, the visual bridge, dataset schema validation, and evaluation utilities. A minimal JSONL example lives in `examples/` so the data schema can be exercised before any real dataset work starts.
 ## Near-Term Milestones
 
 1. Finalize architecture details and training interfaces
@@ -85,4 +110,4 @@ See [docs/evaluation.md](/home/tylerkirk/projects/VLM/docs/evaluation.md) for th
 
 ## Status
 
-The repo is currently in planning mode. The documents in `docs/` are the source of truth for the first implementation pass.
+The repo has a first-pass implementation scaffold. The documents in `docs/` remain the source of truth for architecture and experiment direction, and the code currently covers the parts that are worth building before GPU training starts.

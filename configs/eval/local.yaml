@@ -1,0 +1,12 @@
+eval:
+  baseline_model: Qwen/Qwen3.5-2B
+  metrics:
+    - exact_match
+    - normalized_exact_match
+    - char_error_rate
+  task_breakdown:
+    - ocr
+    - object_id
+    - vqa
+  normalize_case: true
+  strip_punctuation: false
