@@ -24,7 +24,7 @@ This project is not currently targeting:
 
 ## Hardware Assumption
 
-Initial development assumes a home workstation with an `RTX 4070 12GB`.
+Initial development is on a home workstation with an RTX 4070 with 12GB of VRAM
 
 That constraint drives several design choices:
 - use a pretrained vision encoder instead of training one from scratch
@@ -66,25 +66,6 @@ The initial baseline plan is to compare against `Qwen3.5-2B` on a focused local 
 - runtime and memory behavior
 
 See [docs/evaluation.md](/home/tylerkirk/projects/VLM/docs/evaluation.md) for the proposed comparison setup.
-
-## Planned Repo Layout
-
-This is the intended structure as implementation begins:
-
-```text
-.
-|-- README.md
-|-- docs/
-|   |-- architecture.md
-|   |-- datasets-and-training.md
-|   `-- evaluation.md
-|-- configs/
-|-- scripts/
-|-- src/
-`-- experiments/
-```
-
-Only the documentation exists right now. Code layout can be adjusted once the training stack is chosen.
 
 ## Near-Term Milestones
 
