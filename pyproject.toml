@@ -5,10 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vlm"
 version = "0.1.0"
-description = "Visual token bridge and text metrics for a small VLM experiment"
+description = "A compact SigLIP-to-Qwen vision-language training pipeline"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["torch>=2.5.0"]
+dependencies = [
+  "torch>=2.6,<3",
+  "transformers==4.57.6",
+  "peft==0.18.0",
+  "Pillow>=10,<13",
+  "safetensors>=0.4.3,<1",
+]
+
+[project.optional-dependencies]
+train = ["bitsandbytes>=0.48,<0.50"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

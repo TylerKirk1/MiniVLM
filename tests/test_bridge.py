@@ -54,6 +54,21 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "shape"):
             self.bridge(torch.randn(7, 12))
 
+    def test_rejects_empty_or_misaligned_patch_masks(self):
+        source = torch.randn(2, 7, 12)
+        for mask in (torch.zeros(2, 7), torch.ones(2, 6)):
+            with self.subTest(shape=mask.shape), self.assertRaises(ValueError):
+                self.bridge(source, mask)
+
+    def test_padded_patches_cannot_change_visual_tokens(self):
+        source = torch.randn(2, 7, 12)
+        mask = torch.ones(2, 7, dtype=torch.bool)
+        mask[:, -2:] = False
+        changed = source.clone()
+        changed[:, -2:] = 1000
+        with torch.no_grad():
+            torch.testing.assert_close(self.bridge(source, mask), self.bridge(changed, mask))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,8 @@ class VisionLanguageBridge(nn.Module):
             output_dim=config.llm_hidden_size,
         )
 
-    def forward(self, vision_features: torch.Tensor) -> torch.Tensor:
-        latents = self.resampler(vision_features)
+    def forward(
+        self, vision_features: torch.Tensor, mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        latents = self.resampler(vision_features, mask)
         return self.projector(latents)

@@ -12,5 +12,6 @@ dist/
 artifacts/
 checkpoints/
 logs/
+*.log
 wandb/
 /data/

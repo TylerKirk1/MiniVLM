@@ -1,4 +1,4 @@
-"""Visual bridge and text metrics for MiniVLM experiments."""
+"""Single-image vision-language training and inference."""
 
 __all__ = ["__version__"]
 
