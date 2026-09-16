@@ -5,36 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vlm"
 version = "0.1.0"
-description = "Small VLM research scaffold for Qwen + SigLIP experiments"
+description = "Visual token bridge and text metrics for a small VLM experiment"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-  "PyYAML>=6.0",
-]
-
-[project.optional-dependencies]
-train = [
-  "accelerate>=1.2.0",
-  "bitsandbytes>=0.45.0",
-  "datasets>=3.0.0",
-  "peft>=0.14.0",
-  "Pillow>=10.0.0",
-  "safetensors>=0.4.0",
-  "torch>=2.5.0",
-  "transformers>=4.48.0",
-  "torchvision>=0.20.0",
-]
-dev = [
-  "pytest>=8.0.0",
-  "ruff>=0.8.0",
-]
+dependencies = ["torch>=2.5.0"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.ruff]
-line-length = 100
-target-version = "py311"

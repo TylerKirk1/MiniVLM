@@ -1,70 +1,52 @@
-from __future__ import annotations
+"""Check the standalone visual bridge with synthetic features on CPU."""
 
 import argparse
-from pathlib import Path
 
-from vlm.config import load_merged_config, require_path
+import torch
+
+from vlm.models import BridgeConfig, VisionLanguageBridge
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a CPU shape check for the visual bridge")
-    parser.add_argument(
-        "--config",
-        dest="configs",
-        action="append",
-        required=True,
-        help="Path to a YAML config fragment. Pass multiple times to merge in order.",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=2,
-        help="Dummy batch size for the shape check.",
-    )
-    parser.add_argument(
-        "--source-tokens",
-        type=int,
-        default=576,
-        help="Dummy number of vision tokens coming from the encoder.",
-    )
-    return parser.parse_args()
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
 
 
 def main() -> None:
-    args = parse_args()
-    config = load_merged_config([Path(path) for path in args.configs])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--batch-size", type=positive_int, default=1)
+    parser.add_argument("--source-tokens", type=positive_int, default=64)
+    args = parser.parse_args()
 
-    try:
-        import torch
-    except ModuleNotFoundError as exc:
-        raise SystemExit(
-            "Torch is not installed in this environment. Install the 'train' extras on the "
-            "workstation before using this script."
-        ) from exc
-
-    from vlm.models import BridgeConfig, VisionLanguageBridge
-
-    bridge_config = BridgeConfig(
-        vision_feature_dim=require_path(config, "model", "vision", "feature_dim"),
-        latent_dim=require_path(config, "model", "resampler", "latent_dim"),
-        num_latents=require_path(config, "model", "resampler", "num_latents"),
-        depth=require_path(config, "model", "resampler", "depth"),
-        num_heads=require_path(config, "model", "resampler", "num_heads"),
-        mlp_ratio=require_path(config, "model", "resampler", "mlp_ratio"),
-        projector_hidden_dim=require_path(config, "model", "projector", "hidden_dim"),
-        llm_hidden_size=require_path(config, "model", "llm", "hidden_size"),
+    torch.manual_seed(17)
+    # Original provisional dimensions; this does not load or validate checkpoints.
+    config = BridgeConfig(
+        vision_feature_dim=1152,
+        latent_dim=1024,
+        num_latents=256,
+        depth=2,
+        num_heads=8,
+        mlp_ratio=4,
+        projector_hidden_dim=2048,
+        llm_hidden_size=2048,
     )
+    bridge = VisionLanguageBridge(config)
+    source = torch.randn(args.batch_size, args.source_tokens, config.vision_feature_dim)
+    projected = bridge(source)
+    expected = (args.batch_size, config.num_latents, config.llm_hidden_size)
+    if tuple(projected.shape) != expected or not torch.isfinite(projected).all():
+        raise RuntimeError(f"Expected finite output with shape {expected}")
 
-    bridge = VisionLanguageBridge(bridge_config)
-    dummy_source = torch.randn(
-        args.batch_size,
-        args.source_tokens,
-        bridge_config.vision_feature_dim,
-    )
-    projected = bridge(dummy_source)
+    projected.square().mean().backward()
+    for name, parameter in bridge.named_parameters():
+        if parameter.grad is None or not torch.isfinite(parameter.grad).all():
+            raise RuntimeError(f"Missing or non-finite gradient: {name}")
 
-    print(f"input shape:  {tuple(dummy_source.shape)}")
+    print(f"input shape:  {tuple(source.shape)}")
     print(f"output shape: {tuple(projected.shape)}")
+    print("backward pass: finite gradients")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Core package for the VLM research scaffold."""
+"""Visual bridge and text metrics for MiniVLM experiments."""
 
 __all__ = ["__version__"]
 

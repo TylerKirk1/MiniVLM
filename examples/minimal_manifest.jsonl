@@ -1,2 +1,0 @@
-{"id":"ocr-001","task":"ocr","image":"examples/images/sign_main_st.jpg","messages":[{"role":"user","content":"What text is shown on the sign?"},{"role":"assistant","content":"MAIN ST"}]}
-{"id":"obj-001","task":"object_id","image":"examples/images/fire_hydrant.jpg","messages":[{"role":"user","content":"Identify the main object in the image."},{"role":"assistant","content":"red fire hydrant"}]}

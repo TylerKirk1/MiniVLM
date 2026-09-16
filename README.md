@@ -1,113 +1,78 @@
-# VLM
+# MiniVLM
 
-Early-stage vision-language model project built around a small text backbone and a pretrained vision encoder.
+A small vision-language model experiment for object recognition, short-form OCR,
+and simple image questions, intended for an RTX 4070 with 12 GB of VRAM.
 
-The current working plan is:
-- Text backbone: `Qwen3-1.7B`
-- Vision encoder: `SigLIP-2 NaFlex So400M`
-- Visual adapter: learned `256`-token resampler
-- Text adaptation: `QLoRA` on the LLM
-- Primary baseline: `Qwen3.5-2B`
+**Status: standalone building blocks only.** There is no image encoder or language
+model integration, dataset loader, training loop, inference command, or trained
+checkpoint yet. The smoke check uses random features, not images.
 
-## Project Goal
+## What works
 
-Build a compact multimodal model that is reasonably capable at:
-- general object identification
-- short-form OCR in natural images and screenshots
-- simple image question answering
-
-This project is not currently targeting:
-- dense document OCR
-- long-form document understanding
-- fine-grained grounding or detection
-- state-of-the-art benchmark performance
-
-## Hardware Assumption
-
-Initial development is on a home workstation with an RTX 4070 with 12GB of VRAM
-
-That constraint drives several design choices:
-- use a pretrained vision encoder instead of training one from scratch
-- compress image features before feeding them to the LLM
-- use `QLoRA` instead of full LLM finetuning
-- keep early experiments narrow and measurable
-
-## Current Architecture Direction
-
-High-level flow:
-
-1. Encode the image with `SigLIP-2 NaFlex So400M`
-2. Convert vision features into a fixed learned set of `256` visual tokens
-3. Project visual tokens into the LLM hidden space
-4. Concatenate visual tokens with the text prompt
-5. Train the multimodal stack with a frozen or mostly frozen vision tower and `QLoRA` on the LLM
-
-See [docs/architecture.md](/home/tylerkirk/projects/VLM/docs/architecture.md) for the detailed design.
-
-## Training Strategy
-
-Planned training phases:
-
-1. Connector alignment
-   Train the visual resampler and projector first, with the LLM and vision encoder mostly frozen.
-2. Multimodal SFT
-   Apply `QLoRA` to the LLM and continue training on OCR, object-ID, captioning, and VQA-style data.
-3. Optional vision refinement
-   Only if needed, unfreeze a small portion of the upper vision stack for targeted refinement.
-
-See [docs/datasets-and-training.md](/home/tylerkirk/projects/VLM/docs/datasets-and-training.md) for the working recipe.
-
-## Evaluation Direction
-
-The initial baseline plan is to compare against `Qwen3.5-2B` on a focused local eval suite covering:
-- OCR
-- object identification
-- simple visual QA
-- runtime and memory behavior
-
-See [docs/evaluation.md](/home/tylerkirk/projects/VLM/docs/evaluation.md) for the proposed comparison setup.
-
-## Repo Layout
-
-The initial scaffold now includes:
+- A learned cross-attention resampler compresses vision features into a fixed
+  number of visual tokens.
+- An MLP projector maps those tokens to a language model's embedding dimension.
+- Text metrics provide exact match, normalized exact match, and character error
+  rate (CER).
 
 ```text
-.
-|-- README.md
-|-- pyproject.toml
-|-- .gitignore
-|-- docs/
-|   |-- architecture.md
-|   |-- datasets-and-training.md
-|   `-- evaluation.md
-|-- examples/
-|-- configs/
-|   |-- data/
-|   |-- eval/
-|   |-- model/
-|   `-- train/
-|-- scripts/
-|-- src/
-`-- experiments/
+vision features [batch, patches, vision_dim]
+  -> learned resampler
+  -> MLP projector
+  -> visual tokens [batch, num_latents, llm_hidden_size]
 ```
 
-The code paths are still intentionally light. The current scaffold focuses on config composition, the visual bridge, dataset schema validation, and evaluation utilities. A minimal JSONL example lives in `examples/` so the data schema can be exercised before any real dataset work starts.
-## Near-Term Milestones
+The bridge accepts feature tensors with no padding. It does not handle images,
+patch masks, text prompts, or language generation. Its weights start randomly
+initialized and must be trained before they can carry useful visual information.
 
-1. Finalize architecture details and training interfaces
-2. Scaffold dataset ingestion and prompt formatting
-3. Implement the resampler/projector path
-4. Run a memory-fit smoke test on the `4070`
-5. Train a small alignment run
-6. Run the first local comparison against `Qwen3.5-2B`
+## Run locally
 
-## Open Decisions
+Python 3.11 or newer is required. From the repository root, in an activated
+virtual environment:
 
-- whether to keep `NaFlex` dynamic-resolution behavior in the first implementation or temporarily pin input sizes
-- whether `256` visual tokens is sustainable on `12GB` once prompt lengths and batch sizes are realistic
-- whether the first OCR objective should focus on screenshots, scene text, or mixed text domains
-- how much custom local evaluation data to collect before training
+```sh
+python -m pip install -e .
+python scripts/check_shapes.py
+python -m unittest discover -s tests -v
+```
 
-## Status
+PyTorch is the only runtime dependency. The smoke check runs on CPU without
+downloading model weights. It checks a forward and backward pass with the original
+provisional bridge dimensions: 1,152 input features, 256 visual tokens, and 2,048
+output features. Expected shapes with the default arguments:
 
-The repo has a first-pass implementation scaffold. The documents in `docs/` remain the source of truth for architecture and experiment direction, and the code currently covers the parts that are worth building before GPU training starts.
+```text
+input shape:  (1, 64, 1152)
+output shape: (1, 256, 2048)
+backward pass: finite gradients
+```
+
+These dimensions are a synthetic test preset, not validated checkpoint metadata
+or evidence that the complete model fits in 12 GB. Use `--batch-size` and
+`--source-tokens` to vary the input. Construct a `BridgeConfig` in Python for other
+bridge dimensions.
+
+## Code
+
+- `src/vlm/models/`: `BridgeConfig`, `VisionLanguageBridge`, resampler, and projector.
+- `src/vlm/eval/metrics.py`: standalone text-scoring functions.
+- `scripts/check_shapes.py`: CPU smoke check.
+- `tests/`: bridge behavior and metric checks, using Python's `unittest`.
+
+The metrics operate on individual strings, not datasets. Normalized exact match
+ignores case and repeated whitespace by default; punctuation stripping is opt-in.
+CER uses raw characters and can exceed 1. For an empty target, it returns 0 for an
+empty prediction and 1 otherwise.
+
+## Intended next step
+
+The original design pairs a frozen SigLIP-2 NaFlex So400M vision encoder with
+Qwen3-1.7B through a 256-token bridge. The proposed training sequence is connector
+alignment first, then QLoRA adaptation of the language model, with Qwen3.5-2B as a
+comparison target. None of that integration has been implemented or validated.
+
+The next useful milestone is one real image-to-answer forward and backward pass:
+verify checkpoint dimensions, handle vision padding, connect visual and text
+embeddings with correct attention and loss masks, and measure memory use. Larger
+dataset recipes and training schedules should wait until that path works.
