@@ -1,9 +1,6 @@
 __pycache__/
 *.py[cod]
 *.so
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 .venv/
 venv/
 build/
@@ -15,5 +12,6 @@ dist/
 artifacts/
 checkpoints/
 logs/
+*.log
 wandb/
-data/
+/data/

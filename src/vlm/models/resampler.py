@@ -4,6 +4,7 @@ import math
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 
 class FeedForward(nn.Module):
@@ -24,12 +25,11 @@ class FeedForward(nn.Module):
 class CrossAttentionBlock(nn.Module):
     def __init__(self, latent_dim: int, source_dim: int, num_heads: int) -> None:
         super().__init__()
-        if latent_dim % num_heads != 0:
+        if num_heads < 1 or latent_dim % num_heads != 0:
             raise ValueError("latent_dim must be divisible by num_heads")
 
         self.num_heads = num_heads
         self.head_dim = latent_dim // num_heads
-        self.scale = self.head_dim ** -0.5
 
         self.latents_norm = nn.LayerNorm(latent_dim)
         self.source_norm = nn.LayerNorm(source_dim)
@@ -39,7 +39,9 @@ class CrossAttentionBlock(nn.Module):
         self.value = nn.Linear(source_dim, latent_dim)
         self.out = nn.Linear(latent_dim, latent_dim)
 
-    def forward(self, latents: torch.Tensor, source: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, latents: torch.Tensor, source: torch.Tensor, mask: torch.Tensor | None
+    ) -> torch.Tensor:
         batch_size, num_latents, latent_dim = latents.shape
         _, num_source_tokens, _ = source.shape
 
@@ -54,9 +56,10 @@ class CrossAttentionBlock(nn.Module):
         key = key.view(batch_size, num_source_tokens, self.num_heads, self.head_dim).transpose(1, 2)
         value = value.view(batch_size, num_source_tokens, self.num_heads, self.head_dim).transpose(1, 2)
 
-        attention_scores = torch.matmul(query, key.transpose(-2, -1)) * self.scale
-        attention_weights = attention_scores.softmax(dim=-1)
-        attention_output = torch.matmul(attention_weights, value)
+        attention_mask = None if mask is None else mask[:, None, None, :]
+        attention_output = F.scaled_dot_product_attention(
+            query, key, value, attn_mask=attention_mask
+        )
 
         attention_output = attention_output.transpose(1, 2).contiguous()
         attention_output = attention_output.view(batch_size, num_latents, latent_dim)
@@ -74,8 +77,8 @@ class LearnedTokenResampler(nn.Module):
         mlp_ratio: int = 4,
     ) -> None:
         super().__init__()
-        if depth < 1:
-            raise ValueError("depth must be at least 1")
+        if min(input_dim, latent_dim, num_latents, depth, num_heads, mlp_ratio) < 1:
+            raise ValueError("Resampler dimensions and depth must be positive")
 
         self.num_latents = num_latents
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim) / math.sqrt(latent_dim))
@@ -96,15 +99,23 @@ class LearnedTokenResampler(nn.Module):
         )
         self.output_norm = nn.LayerNorm(latent_dim)
 
-    def forward(self, source: torch.Tensor) -> torch.Tensor:
+    def forward(self, source: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         if source.ndim != 3:
             raise ValueError("Expected source features with shape [batch, tokens, dim]")
+        if source.shape[1] == 0:
+            raise ValueError("At least one source token is required")
+        if mask is not None:
+            if mask.shape != source.shape[:2]:
+                raise ValueError("Mask must have shape [batch, tokens]")
+            mask = mask.to(device=source.device, dtype=torch.bool)
+            if not mask.any(dim=1).all():
+                raise ValueError("Each image must have at least one unmasked patch")
 
         batch_size = source.shape[0]
         latents = self.latents.unsqueeze(0).expand(batch_size, -1, -1)
 
         for attention, feedforward in self.blocks:
-            latents = attention(latents, source)
+            latents = attention(latents, source, mask)
             latents = feedforward(latents)
 
         return self.output_norm(latents)

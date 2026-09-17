@@ -1,4 +1,4 @@
-"""Core package for the VLM research scaffold."""
+"""Single-image vision-language training and inference."""
 
 __all__ = ["__version__"]
 

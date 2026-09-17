@@ -1,113 +1,127 @@
-# VLM
+# MiniVLM
 
-Early-stage vision-language model project built around a small text backbone and a pretrained vision encoder.
-
-The current working plan is:
-- Text backbone: `Qwen3-1.7B`
-- Vision encoder: `SigLIP-2 NaFlex So400M`
-- Visual adapter: learned `256`-token resampler
-- Text adaptation: `QLoRA` on the LLM
-- Primary baseline: `Qwen3.5-2B`
-
-## Project Goal
-
-Build a compact multimodal model that is reasonably capable at:
-- general object identification
-- short-form OCR in natural images and screenshots
-- simple image question answering
-
-This project is not currently targeting:
-- dense document OCR
-- long-form document understanding
-- fine-grained grounding or detection
-- state-of-the-art benchmark performance
-
-## Hardware Assumption
-
-Initial development is on a home workstation with an RTX 4070 with 12GB of VRAM
-
-That constraint drives several design choices:
-- use a pretrained vision encoder instead of training one from scratch
-- compress image features before feeding them to the LLM
-- use `QLoRA` instead of full LLM finetuning
-- keep early experiments narrow and measurable
-
-## Current Architecture Direction
-
-High-level flow:
-
-1. Encode the image with `SigLIP-2 NaFlex So400M`
-2. Convert vision features into a fixed learned set of `256` visual tokens
-3. Project visual tokens into the LLM hidden space
-4. Concatenate visual tokens with the text prompt
-5. Train the multimodal stack with a frozen or mostly frozen vision tower and `QLoRA` on the LLM
-
-See [docs/architecture.md](/home/tylerkirk/projects/VLM/docs/architecture.md) for the detailed design.
-
-## Training Strategy
-
-Planned training phases:
-
-1. Connector alignment
-   Train the visual resampler and projector first, with the LLM and vision encoder mostly frozen.
-2. Multimodal SFT
-   Apply `QLoRA` to the LLM and continue training on OCR, object-ID, captioning, and VQA-style data.
-3. Optional vision refinement
-   Only if needed, unfreeze a small portion of the upper vision stack for targeted refinement.
-
-See [docs/datasets-and-training.md](/home/tylerkirk/projects/VLM/docs/datasets-and-training.md) for the working recipe.
-
-## Evaluation Direction
-
-The initial baseline plan is to compare against `Qwen3.5-2B` on a focused local eval suite covering:
-- OCR
-- object identification
-- simple visual QA
-- runtime and memory behavior
-
-See [docs/evaluation.md](/home/tylerkirk/projects/VLM/docs/evaluation.md) for the proposed comparison setup.
-
-## Repo Layout
-
-The initial scaffold now includes:
+A compact vision-language experiment for **object identification, short OCR, and
+simple image questions** on an RTX 4070 (12 GB). One image, one question, one short
+answer per example.
 
 ```text
-.
-|-- README.md
-|-- pyproject.toml
-|-- .gitignore
-|-- docs/
-|   |-- architecture.md
-|   |-- datasets-and-training.md
-|   `-- evaluation.md
-|-- examples/
-|-- configs/
-|   |-- data/
-|   |-- eval/
-|   |-- model/
-|   `-- train/
-|-- scripts/
-|-- src/
-`-- experiments/
+image -> frozen SigLIP-2 NaFlex -> 256-token bridge -> Qwen3-1.7B -> answer
 ```
 
-The code paths are still intentionally light. The current scaffold focuses on config composition, the visual bridge, dataset schema validation, and evaluation utilities. A minimal JSONL example lives in `examples/` so the data schema can be exercised before any real dataset work starts.
-## Near-Term Milestones
+The pipeline is implemented; no model has been trained. An untrained bridge will
+not produce useful visual answers. Full-size training memory use and answer
+quality have not been measured.
 
-1. Finalize architecture details and training interfaces
-2. Scaffold dataset ingestion and prompt formatting
-3. Implement the resampler/projector path
-4. Run a memory-fit smoke test on the `4070`
-5. Train a small alignment run
-6. Run the first local comparison against `Qwen3.5-2B`
+## Setup
 
-## Open Decisions
+Python 3.11+; training and checkpoint inference require an NVIDIA GPU with BF16
+support. On Windows PowerShell, from the repository root:
 
-- whether to keep `NaFlex` dynamic-resolution behavior in the first implementation or temporarily pin input sizes
-- whether `256` visual tokens is sustainable on `12GB` once prompt lengths and batch sizes are realistic
-- whether the first OCR objective should focus on screenshots, scene text, or mixed text domains
-- how much custom local evaluation data to collect before training
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cu128
+python -m pip install -e ".[train]"
+```
 
-## Status
+The CUDA wheel above matches the tested RTX 4070 setup; see
+[PyTorch installation options](https://pytorch.org/get-started/previous-versions/)
+for other systems. CPU-only development can use `python -m pip install -e .`.
+Transformers and PEFT versions are pinned to the tested APIs. No torchvision,
+dataset framework, experiment tracker, or logging service is needed.
 
-The repo has a first-pass implementation scaffold. The documents in `docs/` remain the source of truth for architecture and experiment direction, and the code currently covers the parts that are worth building before GPU training starts.
+## Data and preflight
+
+Supply a UTF-8 JSONL file such as `data/train.jsonl`. Each line has exactly these
+three nonempty string fields:
+
+```json
+{"image":"images/sign.png","question":"What text is on the sign?","answer":"MAIN ST"}
+```
+
+Image paths are relative to the manifest. Use real images and accurate, concise
+answers. Keep evaluation images separate from training data. Local data is
+ignored by Git; no sample dataset or placeholder images are shipped.
+
+```sh
+python -m vlm.train data/train.jsonl
+```
+
+This validates every record, decodes and preprocesses every image, checks text
+lengths, and reports whether CUDA and quantization dependencies are available.
+It downloads only tokenizer/processor metadata into the normal Hugging Face
+cache. **It does not load pretrained weights, train, or create run files.**
+
+Defaults are 256 visual tokens, at most 256 image patches, and 512 text tokens.
+Use `--visual-tokens`, `--max-patches`, and `--max-text-tokens` if needed.
+Overlong examples are rejected rather than silently truncating OCR answers.
+
+## Training, when ready
+
+These commands **do update weights**. They are documented for a future run.
+
+First align the bridge while both backbones stay frozen:
+
+```sh
+python -m vlm.train data/train.jsonl --train --steps 100 --output checkpoints/alignment
+```
+
+Then initialize from that bridge and adapt Qwen with QLoRA:
+
+```sh
+python -m vlm.train data/train.jsonl --stage qlora --init checkpoints/alignment --train --steps 100 --output checkpoints/qlora
+```
+
+The example step counts are smoke-run sizes, not a validated training recipe.
+Each optimizer update averages 16 single-example microbatches by default
+(`--accumulation`). Data reshuffles and repeats until `--steps` is reached.
+The bridge uses AdamW at 2e-4, LoRA at 5e-5, with gradient clipping.
+
+Both stages use a 4-bit NF4 language backbone, BF16 computation, gradient
+checkpointing, and a frozen vision encoder. Only answer tokens and the answer's
+EOS contribute to the loss. Vision padding, prompt tokens, and text padding are
+masked. Training and inference share Qwen's non-thinking chat prompt.
+
+Training prints brief progress to the terminal and saves **one final checkpoint**:
+bridge weights, backbone revisions/settings, and LoRA weights when applicable.
+There are no log files, dashboards, periodic checkpoint piles, or duplicated
+backbone weights. Existing outputs are never overwritten. Interrupted runs are
+not resumable; choose a new output directory to restart.
+
+## Use a trained checkpoint
+
+```sh
+python -m vlm.predict checkpoints/qlora path/to/image.png "What text is on the sign?"
+```
+
+This loads the original backbone revisions plus the saved bridge/adapter and
+prints a greedy answer. It downloads pretrained weights if they are not cached.
+Use `--max-new-tokens` to change the 64-token answer limit.
+
+## Verification and code
+
+```sh
+python -m unittest discover -s tests -v
+```
+
+Tests use temporary images and tiny, randomly initialized **real SigLIP and Qwen
+models**, not downloaded checkpoints. Forward/backward checks verify integration
+without optimizer updates. They cover image masking, answer-only loss, gradients,
+generation, checkpoint round-trips, and the preflight guard. A recording
+optimizer checks accumulation arithmetic without modifying weights.
+When CUDA and the training extra are installed, the suite also exercises actual
+4-bit loading, both stages, and checkpoint inference on tiny local models.
+
+- `src/vlm/data.py`: JSONL validation, image loading, tokenization, batching.
+- `src/vlm/model.py`, `src/vlm/models/`: backbone integration and visual bridge.
+- `src/vlm/runtime.py`: pretrained loading, LoRA, compact checkpoints.
+- `src/vlm/train.py`, `src/vlm/predict.py`: the two commands.
+- `src/vlm/eval/metrics.py`: exact match, normalized match, character error rate.
+
+The architecture follows the published
+[Qwen3-1.7B configuration](https://huggingface.co/Qwen/Qwen3-1.7B/blob/main/config.json),
+[SigLIP-2 NaFlex interface](https://huggingface.co/docs/transformers/model_doc/siglip2),
+and [PEFT quantization workflow](https://huggingface.co/docs/peft/developer_guides/quantization).
+Model dimensions come from the loaded checkpoints. Broader benchmarks,
+multi-image/chat support, dataset downloading, and vision finetuning are outside
+this project's current scope.
